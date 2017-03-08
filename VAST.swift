@@ -6,7 +6,10 @@
 //  Copyright © 2016 ALI KIRAN. All rights reserved.
 //
 
+
 import Foundation
+import AEXML
+import Signals
 
 protocol VASTResource {
 
@@ -22,6 +25,10 @@ extension String {
   }
 }
 
+func dlog(_ msg: String) {
+    print(msg)
+}
+
 final public class Vast {
   private(set) var url: NSURL
   private(set) var version: Version?
@@ -32,29 +39,29 @@ final public class Vast {
   init(url: NSURL, handler: (() -> ())?) {
     self.url = url
 
-    self.errorSignal.listen(self) { (error) in
+    self.errorSignal.subscribe(on: self) { (error) in
       dlog("vast error: \(error)")
     }
 
-    if url.absoluteString.containsString("file:///") {
-      guard let data = NSData(contentsOfURL: url) else {
+    if (url.absoluteString?.contains("file:///"))! {
+      guard let data = NSData(contentsOf: url as URL) else {
         return
       }
 
-      dispatch_async(dispatch_get_global_queue(0, 0), {
-        self.parseVastData(data)
-        dispatch_async(dispatch_get_main_queue(), {
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.parseVastData(data: data as Data)
+            DispatchQueue.main.async {
           if let handler = handler {
             handler()
           }
-        })
-      })
+        }
+      }
 
     } else {
 
-      let request = NSMutableURLRequest(URL: url)
-      let task = NSURLSession.sharedSession().dataTaskWithRequest(
-        request, completionHandler: {
+      let request = NSMutableURLRequest(url: url as URL)
+        let task = URLSession.shared.dataTask(
+            with: request as URLRequest, completionHandler: {
           data, response, error in
           guard let data = data else {
             if let error = error {
@@ -65,14 +72,14 @@ final public class Vast {
             return
           }
 
-          dispatch_async(dispatch_get_global_queue(0, 0), {
-            self.parseVastData(data)
-            dispatch_async(dispatch_get_main_queue(), {
+                DispatchQueue.global(qos: .userInitiated).async {
+            self.parseVastData(data: data as Data)
+                    DispatchQueue.main.async {
               if let handler = handler {
                 handler()
               }
-            })
-          })
+            }
+          }
 
       })
 
@@ -81,9 +88,9 @@ final public class Vast {
     }
   }
 
-  func parseVastData(data: NSData) {
+  func parseVastData(data: Data) {
     do {
-      let xmlDoc = try AEXMLDocument(xmlData: data)
+      let xmlDoc = try AEXMLDocument(xml: data)
       guard xmlDoc.root.name == "VAST" else {
         errorSignal.fire("invalid VAST format")
         return
@@ -642,7 +649,7 @@ extension AEXMLElement {
     if let nlinearXMLList = self["NonLinearAds"]["NonLinear"].all {
       for nlinearXML in nlinearXMLList {
         if var linear = Vast.AdObject.Creative.NonLinear(id: nlinearXML.attributes["id"], width: nlinearXML.attributes["width"], height: nlinearXML.attributes["height"], expandedWidth: nlinearXML.attributes["expandedWidth"], expandedHeight: nlinearXML.attributes["expandedHeight"], scalable: nlinearXML.attributes["scalable"], maintainAspectRatio: nlinearXML.attributes["maintainAspectRatio"], minSuggestedDuration: nlinearXML.attributes["minSuggestedDuration"], apiFramework: nlinearXML.attributes["apiFramework"], clickThrough: nlinearXML["NonLinearClickThrough"].uri(), resource: nlinearXML.resource(), parameters: nlinearXML.parameters()) {
-          linear.clickTracking = nlinearXML.uriList("NonLinearClickTracking")
+          linear.clickTracking = nlinearXML.uriList(name: "NonLinearClickTracking")
           linear.extensions = nlinearXML["CreativeExtensions"]["CreativeExtension"].all ?? []
           nlinears.append(linear)
         }
@@ -682,8 +689,8 @@ extension AEXMLElement {
           linear.trackingEvents = linearXML.trackingList()
           linear.parameters = Vast.AdObject.Parameter(value: linearXML["AdParameters"].value, xmlEncoded: linearXML["AdParameters"].attributes["xmlEncoded"])
           linear.clickThrough = linearXML["VideoClicks"]["ClickThrough"].uri()
-          linear.clickTracking = linearXML["VideoClicks"].uriList("ClickTracking")
-          linear.customClick = linearXML["VideoClicks"].uriList("CustomClick")
+          linear.clickTracking = linearXML["VideoClicks"].uriList(name: "ClickTracking")
+          linear.customClick = linearXML["VideoClicks"].uriList(name: "CustomClick")
           linear.mediaFiles = linearXML.mediaFiles()
           linears.append(linear)
         }
@@ -734,8 +741,8 @@ extension AEXMLElement {
         // uri: item.value, id: item.attributes["id"]
         if var icon = Vast.AdObject.Creative.Icon(program: item.attributes["program"], width: item.attributes["width"], height: item.attributes["height"], xPosition: item.attributes["xPosition"], yPosition: item.attributes["yPosition"], offset: item.attributes["offset"], duration: item.attributes["duration"], apiFramework: item.attributes["apiFramework"]) {
           icon.clickThrough = item["IconClicks"]["IconClickThrough"].uri()
-          icon.clickTracking = item["IconClicks"].uriList("IconClickTracking")
-          icon.viewTracking = item.uriList("IconViewTracking")
+          icon.clickTracking = item["IconClicks"].uriList(name: "IconClickTracking")
+          icon.viewTracking = item.uriList(name: "IconViewTracking")
           icon.resource = item.resource()
           icons.append(icon)
         }
